@@ -277,30 +277,101 @@ def create_task_params_from_individual(individual):
     return task_params
 
 
+def interpolate_line(start, end):
+    """
+    Generates points on a straight line from start to end using Bresenham's algorithm.
+    This is a simplified version for 3D space.
+    """
+    points = []
+    start_z, start_y, start_x = start
+    end_z, end_y, end_x = end
+
+    dz = abs(end_z - start_z)
+    dy = abs(end_y - start_y)
+    dx = abs(end_x - start_x)
+    if start_x < end_x:
+        xi = 1
+    else:
+        xi = -1
+    if start_y < end_y:
+        yi = 1
+    else:
+        yi = -1
+    if start_z < end_z:
+        zi = 1
+    else:
+        zi = -1
+
+    # Driving axis is Z-axis
+    if dz >= dx and dz >= dy:
+        p1 = 2 * dx - dz
+        p2 = 2 * dy - dz
+        while start_z != end_z:
+            start_z += zi
+            if p1 >= 0:
+                start_x += xi
+                p1 -= 2 * dz
+            if p2 >= 0:
+                start_y += yi
+                p2 -= 2 * dz
+            p1 += 2 * dx
+            p2 += 2 * dy
+            points.append((start_z, start_y, start_x))
+    # Driving axis is Y-axis
+    elif dy >= dx and dy >= dz:
+        p1 = 2 * dx - dy
+        p2 = 2 * dz - dy
+        while start_y != end_y:
+            start_y += yi
+            if p1 >= 0:
+                start_x += xi
+                p1 -= 2 * dy
+            if p2 >= 0:
+                start_z += zi
+                p2 -= 2 * dy
+            p1 += 2 * dx
+            p2 += 2 * dz
+            points.append((start_z, start_y, start_x))
+    # Driving axis is X-axis
+    else:
+        p1 = 2 * dy - dx
+        p2 = 2 * dz - dx
+        while start_x != end_x:
+            start_x += xi
+            if p1 >= 0:
+                start_y += yi
+                p1 -= 2 * dx
+            if p2 >= 0:
+                start_z += zi
+                p2 -= 2 * dx
+            p1 += 2 * dy
+            p2 += 2 * dz
+            points.append((start_z, start_y, start_x))
+
+    return points
+
+
 def update_workspace_with_best_individual(workspace_matrix, individual):
     """
-    Updates the workspace matrix with the positions from the best individual.
-
-    Args:
-        workspace_matrix (np.ndarray): The workspace matrix to be updated.
-        individual (dict): The best individual, containing posX, posY, and posZ.
+    Updates the workspace matrix with the straight-line trajectories for the best individual.
     """
-    # Extract position and brick type from the individual
-    posX, posY, posZ = individual['posX'], individual['posY'], individual['posZ']
-    brick_type = individual['brick_type']
+    # Starting position (fixed as per the problem statement)
+    start_pos = (2, 4, 6)
 
-    # Assuming brick_positions is defined globally or passed to this function
-    brick_posZ, brick_posY, brick_posX = brick_positions[brick_type]
+    # Extract position and brick type from the individual for pick and place
+    pick_pos = (individual['posZ'], individual['posY'], individual['posX'])
+    place_pos = brick_positions[individual['brick_type']]
 
-    # Reset the workspace_matrix for demonstration purposes (optional)
-    workspace_matrix[:] = 0  # If you want to clear the matrix and only show the best result
+    # Calculate the trajectory from start to pick, pick to place, and place to start
+    # Note: The marker '5' is used here for visibility; adjust as necessary
+    for point in interpolate_line(start_pos, pick_pos) + interpolate_line(pick_pos, place_pos) + interpolate_line(
+            place_pos, start_pos):
+        workspace_matrix[point] = 5
 
-    # Update the workspace matrix with the pick position and brick position
-    # Here, '2' marks the pick position, and '3' marks the brick position
-    workspace_matrix[posZ, posY, posX] = 2  # Mark pick position
-    workspace_matrix[brick_posZ, brick_posY, brick_posX] = 3  # Mark brick position
-    #print(workspace_matrix)
 
+# After defining the best individual
+# update_workspace_with_best_individual(workspace_matrix, best_individual)
+# print(workspace_matrix)
 
 
 def generate_test_suite(pop_size=10, iterations=10, test_cases=10):
@@ -339,11 +410,57 @@ def generate_test_suite(pop_size=10, iterations=10, test_cases=10):
         previous_places.append(best_place)
 
         # Optionally, update and print the workspace for the best individual
-        update_workspace_with_best_individual(workspace_matrix, best_individual)
+        update_workspace_with_velocity(workspace_matrix, best_individual)
         print(workspace_matrix)
 
     return test_suite
 
+
+def interpolate_line_with_velocity(start, end, max_velocity=9):
+    """
+    Generates points on a straight line from start to end, including simple acceleration
+    and deceleration phases. Returns a list of tuples where each tuple contains the point
+    coordinates and the simulated velocity at that point.
+    """
+    points = interpolate_line(start, end)  # Use the previous interpolate_line function
+    num_points = len(points)
+
+    # Calculate acceleration and deceleration phases length (1/3 of the path each)
+    phase_length = num_points // 3
+
+    velocities = []
+    for i in range(num_points):
+        if i < phase_length:  # Acceleration phase
+            # Linear acceleration: velocity increases from 1 to max_velocity
+            velocity = 1 + (max_velocity - 2) * i / phase_length
+        elif i > num_points - phase_length:  # Deceleration phase
+            # Linear deceleration: velocity decreases to 1
+            velocity = 1 + (max_velocity - 2) * (num_points - 1 - i) / phase_length
+        else:  # Constant speed phase
+            velocity = max_velocity
+        velocities.append(min(max(int(velocity), 1), max_velocity))  # Ensure velocity is within [1, max_velocity]
+
+    return [(points[i][0], points[i][1], points[i][2], velocities[i]) for i in range(num_points)]
+
+
+def update_workspace_with_velocity(workspace_matrix, individual):
+    """
+    Updates the workspace matrix with the trajectory for the best individual, taking into account
+    acceleration and deceleration to simulate varying velocity.
+    """
+    start_pos = (2, 4, 6)  # Starting position
+    pick_pos = (individual['posZ'], individual['posY'], individual['posX'])
+    place_pos = brick_positions[individual['brick_type']]
+
+    # Calculate trajectories with velocity
+    to_pick = interpolate_line_with_velocity(start_pos, pick_pos)
+    to_place = interpolate_line_with_velocity(pick_pos, place_pos)
+    to_start = interpolate_line_with_velocity(place_pos, start_pos)
+
+    # Mark the trajectories on the workspace matrix
+    for segment in [to_pick, to_place, to_start]:
+        for z, y, x, velocity in segment:
+            workspace_matrix[z, y, x] = velocity
 
 
 
