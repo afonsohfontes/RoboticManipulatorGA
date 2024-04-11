@@ -122,7 +122,8 @@ def initialize_population(pop_size):
     return population
 
 
-def calculate_fitness(individual, previous_picks=[], previous_places=[]):
+def calculate_fitness(individual, previous_picks=[], previous_places=[], global_visited_positions=set(),
+                      global_velocities=[]):
     """
     Calculates the fitness of an individual based on multiple criteria:
     - The Euclidean distance between pick and place positions.
@@ -151,19 +152,54 @@ def calculate_fitness(individual, previous_picks=[], previous_places=[]):
     avg_pick_distance = np.mean([euclidean_distance(current_pick, prev_pick) for prev_pick in previous_picks]) if previous_picks else 0
     avg_place_distance = np.mean([euclidean_distance(current_place, prev_place) for prev_place in previous_places]) if previous_places else 0
 
+    visited_positions, velocities = simulate_trajectory(individual)
+
+    # Calculate how much new space is explored by this individual
+    new_exploration = visited_positions.difference(global_visited_positions)
+    exploration_score = len(new_exploration)
+
+    # Calculate how different the velocity profile of this individual is
+    unique_velocities = set(velocities).difference(global_velocities)
+    velocity_diversity_score = len(unique_velocities)
+
     # Combine the three factors into a single fitness score
-    fitness = pick_place_distance + 3*avg_pick_distance + 5*avg_place_distance
+    basic_fitness = pick_place_distance + 0*avg_pick_distance + 0*avg_place_distance
 
     # Check for exact match of the current pair in the history of pairs
     for prev_pick, prev_place in zip(previous_picks, previous_places):
         if current_pick == prev_pick and current_place == prev_place:
             penalty = -15  # Apply a penalty to discourage exact pair repeats
-            fitness += penalty
+            basic_fitness  += penalty
             break
+
+    # Calculate how different this individual's trajectory is
+    #exploration_difference, velocity_diversity_difference = calculate_difference_score(visited_positions, velocities)
+
+    # Combine components into a final score
+    fitness = basic_fitness + 1 * exploration_score + 1 * velocity_diversity_score
 
     return fitness
 
 
+def simulate_trajectory(individual):
+    """
+    Simulates the trajectory for an individual, returning the visited positions and velocities.
+    """
+    start_pos = (2, 4, 6)  # Starting position
+    pick_pos = (individual['posZ'], individual['posY'], individual['posX'])
+    place_pos = brick_positions[individual['brick_type']]
+
+    # Simulate the trajectories with velocity
+    to_pick = interpolate_line_with_velocity(start_pos, pick_pos)
+    to_place = interpolate_line_with_velocity(pick_pos, place_pos)
+    to_start = interpolate_line_with_velocity(place_pos, start_pos)
+
+    # Combine all segments
+    trajectory = to_pick + to_place + to_start
+    visited_positions = {(z, y, x) for z, y, x, v in trajectory}
+    velocities = [v for _, _, _, v in trajectory]
+
+    return visited_positions, velocities
 
 def tournament_selection(population, tournament_size=3):
     """
@@ -216,43 +252,6 @@ def mutate(individual, mutation_rate=0.2):
     return individual
 
 
-
-
-# Initial population setup
-pop_size = 10  # Example population size
-population = initialize_population(pop_size)
-
-# Number of iterations
-iterations = 10
-
-for _ in range(iterations):
-    # Selection
-    parent1 = tournament_selection(population)
-    parent2 = tournament_selection(population)
-    while parent1 == parent2:
-        # Ensure different parents are selected
-        parent2 = tournament_selection(population)
-
-    # Crossover and mutation
-    offspring = crossover(parent1, parent2)
-    offspring = mutate(offspring)
-
-    # Calculate and print the fitness of the offspring
-    offspring_fitness = calculate_fitness(offspring)
-    print(f"Offspring Fitness: {offspring_fitness}")
-
-    # Sort the population based on fitness, worst to best
-    population.sort(key=calculate_fitness)
-
-    # Replace the worst individual with the new offspring
-    # Assuming the population size should remain constant
-    population[0] = offspring
-
-# At this point, you might want to evaluate the entire population
-# to find and report the individual with the highest fitness
-best_individual = max(population, key=calculate_fitness)
-best_fitness = calculate_fitness(best_individual)
-print(f"Best Individual Fitness after {iterations} iterations: {best_fitness}")
 
 def create_task_params_from_individual(individual):
     """
@@ -378,8 +377,14 @@ def generate_test_suite(pop_size=10, iterations=10, test_cases=10):
     test_suite = []
     previous_picks = []
     previous_places = []
+    workspaces = []
+    global global_visited_positions, global_velocities
 
     for _ in range(test_cases):
+        # Re-initialize workspace_matrix for each test case
+        workspace_matrix = np.zeros((height, width, length))
+        workspace_matrix[2, 4, 6] = 1  # Reset end effector start/end position
+
         population = initialize_population(pop_size)
 
         for _ in range(iterations):
@@ -393,14 +398,14 @@ def generate_test_suite(pop_size=10, iterations=10, test_cases=10):
             offspring = mutate(offspring)
 
             # Now calculate fitness considering the history of picks and places
-            offspring_fitness = calculate_fitness(offspring, previous_picks, previous_places)
+            offspring_fitness = calculate_fitness(offspring, previous_picks, previous_places, global_visited_positions, global_velocities)
             offspring['fitness'] = offspring_fitness  # Optional, store fitness in individual
 
             # Population update (simplified for demonstration)
-            population.sort(key=lambda ind: calculate_fitness(ind, previous_picks, previous_places))
+            population.sort(key=lambda ind: calculate_fitness(ind, previous_picks, previous_places, global_visited_positions, global_velocities))
             population[0] = offspring
 
-        best_individual = max(population, key=lambda ind: calculate_fitness(ind, previous_picks, previous_places))
+        best_individual = max(population, key=lambda ind: calculate_fitness(ind, previous_picks, previous_places, global_visited_positions, global_velocities))
         test_suite.append(create_task_params_from_individual(best_individual))
 
         # Update history of picks and places
@@ -409,11 +414,14 @@ def generate_test_suite(pop_size=10, iterations=10, test_cases=10):
         previous_picks.append(best_pick)
         previous_places.append(best_place)
 
-        # Optionally, update and print the workspace for the best individual
-        update_workspace_with_velocity(workspace_matrix, best_individual)
-        print(workspace_matrix)
-
-    return test_suite
+        # Update global metrics and reset workspace_matrix for visualization
+        visited_positions, velocities = simulate_trajectory(best_individual)
+        update_global_metrics(visited_positions, velocities)
+        update_workspace_with_velocity(workspace_matrix,
+                                       best_individual)  # This function now uses the re-initialized workspace_matrix
+        #print(workspace_matrix)  # Prints the workspace matrix for the current test case
+        workspaces.append(np.copy(workspace_matrix))
+    return test_suite, workspaces
 
 
 def interpolate_line_with_velocity(start, end, max_velocity=9):
@@ -448,6 +456,8 @@ def update_workspace_with_velocity(workspace_matrix, individual):
     Updates the workspace matrix with the trajectory for the best individual, taking into account
     acceleration and deceleration to simulate varying velocity.
     """
+    #workspace_matrix = np.zeros((height, width, length))
+    workspace_matrix[2, 4, 6] = 1
     start_pos = (2, 4, 6)  # Starting position
     pick_pos = (individual['posZ'], individual['posY'], individual['posX'])
     place_pos = brick_positions[individual['brick_type']]
@@ -463,8 +473,107 @@ def update_workspace_with_velocity(workspace_matrix, individual):
             workspace_matrix[z, y, x] = velocity
 
 
+# Global variables to hold aggregate information
+global_visited_positions = set()
+global_velocities = []
+
+def update_global_metrics(visited_positions, velocities):
+    global global_visited_positions
+    global global_velocities
+    global_visited_positions.update(visited_positions)
+    global_velocities.extend(velocities)
+
+
+def calculate_physcov_velocity(workspaces):
+    unique_visited_pos_vel = set()
+
+    # Iterate over each workspace
+    for workspace in workspaces:
+        for z, layer in enumerate(workspace):
+            for y, row in enumerate(layer):
+                for x, velocity in enumerate(row):
+                    if velocity > 0:
+                        unique_visited_pos_vel.add((z, y, x, velocity))
+
+    # Calculate the number of unique positions visited
+    unique_positions = len(set((z, y, x) for z, y, x, _ in unique_visited_pos_vel))
+    # Calculate the total possible positions
+    total_positions = len(workspaces[0]) * len(workspaces[0][0]) * len(workspaces[0][0][0])
+    # Calculate exploration coverage as the ratio of unique visited positions to total positions
+    exploration_coverage = unique_positions / total_positions
+
+    # Calculate velocity diversity as the number of unique velocity values across all visited positions
+    velocity_diversity = len(set(velocity for _, _, _, velocity in unique_visited_pos_vel))
+
+    # Optionally, combine exploration coverage and velocity diversity into a single score
+    # This combination method is arbitrary and can be adjusted according to specific requirements
+    combined_score = exploration_coverage * velocity_diversity
+
+    return exploration_coverage, velocity_diversity, combined_score
+
+
+def calculate_difference_score(new_positions, new_velocities):
+    """
+    Calculate scores based on how different the new positions and velocities
+    are compared to the global metrics.
+    """
+    # Exploration difference
+    new_exploration = len(new_positions.difference(global_visited_positions))
+    exploration_difference_score = new_exploration
+
+    # Velocity diversity difference (could use more sophisticated metrics)
+    new_velocity_range = set(new_velocities)
+    existing_velocity_range = set(global_velocities)
+    new_velocity_variety = len(new_velocity_range.difference(existing_velocity_range))
+    velocity_diversity_difference_score = new_velocity_variety
+
+    return exploration_difference_score, velocity_diversity_difference_score
+
+
+
+
+# Initial population setup
+pop_size = 10  # Example population size
+population = initialize_population(pop_size)
+
+# Number of iterations
+iterations = 10
+
+for _ in range(iterations):
+    # Selection
+    parent1 = tournament_selection(population)
+    parent2 = tournament_selection(population)
+    while parent1 == parent2:
+        # Ensure different parents are selected
+        parent2 = tournament_selection(population)
+
+    # Crossover and mutation
+    offspring = crossover(parent1, parent2)
+    offspring = mutate(offspring)
+
+    # Calculate and print the fitness of the offspring
+    offspring_fitness = calculate_fitness(offspring)
+    #print(f"Offspring Fitness: {offspring_fitness}")
+
+    # Sort the population based on fitness, worst to best
+    population.sort(key=calculate_fitness)
+
+    # Replace the worst individual with the new offspring
+    # Assuming the population size should remain constant
+    population[0] = offspring
+
+# At this point, you might want to evaluate the entire population
+# to find and report the individual with the highest fitness
+best_individual = max(population, key=calculate_fitness)
+best_fitness = calculate_fitness(best_individual)
+print(f"Best Individual Fitness after {iterations} iterations: {best_fitness}")
 
 # Generate the test suite
-test_suite = generate_test_suite()
-for test_case in test_suite:
-    print(test_case)
+test_suite, collected_workspaces = generate_test_suite()
+for workspace in collected_workspaces:
+    print(workspace)
+
+exploration_coverage, velocity_diversity, combined_score = calculate_physcov_velocity(collected_workspaces)
+print(f"Exploration Coverage: {exploration_coverage:.2f}")
+print(f"Velocity Diversity: {velocity_diversity}")
+print(f"Combined PhysCov Score: {combined_score:.2f}")
