@@ -29,7 +29,7 @@ task_params = {
 workspace_matrix = np.zeros((height, width, length))
 #print(workspace_matrix)
 brick_positions = {
-    0: (0, 7, 3),  # Brick type 0 at row 7, column 3
+    0: (0, 7, 3),  # Brick type 0 at row 7, column 3a
     1: (0, 7, 5),  # Brick type 1 at row 7, column 5
     2: (0, 7, 7),  # Brick type 2 at row 7, column 7
     3: (0, 7, 9),  # Brick type 3 at row 7, column 9

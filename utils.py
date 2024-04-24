@@ -22,7 +22,7 @@ brick_positions = {
     10: (0, 1, 9)  # Brick type 10 at row 1, column 9
 }
 
-eligible_positions = [(0, row, col) for row in range(1, width - 1)  # Rows 1 through width-1 (excluding the last row)
+eligible_positions = [(0, row, col) for row in range(1, width - 1)  # Rows 1 through width-1 (excluding the last row)a
                       for col in range(math.ceil(length / 2), length - 1)]
 
 def update_config(new_length, new_width, new_height, new_brick_positions):
