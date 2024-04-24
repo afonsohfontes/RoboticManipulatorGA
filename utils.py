@@ -9,11 +9,21 @@ length = 21
 width = 10
 height = 3
 brick_positions = {
-    0: (0, 7, 3), 1: (0, 7, 5), 2: (0, 7, 7), 3: (0, 7, 9),
-    4: (0, 4, 1), 5: (0, 4, 3), 6: (0, 4, 5), 7: (0, 4, 7),
-    8: (0, 1, 1), 9: (0, 1, 3), 10: (0, 1, 5)
+    0: (0, 7, 3),  # Brick type 0 at row 7, column 3
+    1: (0, 7, 5),  # Brick type 1 at row 7, column 5
+    2: (0, 7, 7),  # Brick type 2 at row 7, column 7
+    3: (0, 7, 9),  # Brick type 3 at row 7, column 9
+    4: (0, 4, 3),  # Brick type 4 at row 4, column 3
+    5: (0, 4, 5),  # Brick type 5 at row 4, column 5
+    6: (0, 4, 7),  # Brick type 6 at row 4, column 7
+    7: (0, 4, 9),  # Brick type 7 at row 4, column 9
+    8: (0, 1, 5),  # Brick type 8 at row 1, column 5
+    9: (0, 1, 7),  # Brick type 9 at row 1, column 7
+    10: (0, 1, 9)  # Brick type 10 at row 1, column 9
 }
-eligible_positions = []
+
+eligible_positions = [(0, row, col) for row in range(1, width - 1)  # Rows 1 through width-1 (excluding the last row)
+                      for col in range(math.ceil(length / 2), length - 1)]
 
 def update_config(new_length, new_width, new_height, new_brick_positions):
     global length, width, height, eligible_positions, brick_positions
@@ -22,8 +32,10 @@ def update_config(new_length, new_width, new_height, new_brick_positions):
     height = new_height
     brick_positions = new_brick_positions
     # Recalculate eligible positions based on new dimensions
+
     eligible_positions = [(0, row, col) for row in range(1, width - 1)
-                          for col in range(math.ceil(length / 2), length)]
+                          # Rows 1 through width-1 (excluding the last row)
+                          for col in range(math.ceil(length / 2), length - 1)]
 
 
 
@@ -174,7 +186,7 @@ def calculate_fitness(individual, previous_picks=[], previous_places=[], global_
     new_paths = trajectory.difference(global_trajectories)
     t_exploration_score = len(new_paths)
 
-    basic_fitness = pick_place_distance + 2 * avg_pick_distance + 2 * avg_place_distance
+    basic_fitness = 1 * pick_place_distance + 1.5 * avg_pick_distance + 1.5 * avg_place_distance
     penalty = 0
     for prev_pick, prev_place in zip(previous_picks, previous_places):
         if current_pick == prev_pick and current_place == prev_place:
