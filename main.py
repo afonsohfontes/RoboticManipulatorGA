@@ -29,17 +29,17 @@ task_params = {
 workspace_matrix = np.zeros((height, width, length))
 #print(workspace_matrix)
 brick_positions = {
-    0: (0, 7, 3),  # Brick type 0 at row 7, column 3a
-    1: (0, 7, 5),  # Brick type 1 at row 7, column 5
-    2: (0, 7, 7),  # Brick type 2 at row 7, column 7
-    3: (0, 7, 9),  # Brick type 3 at row 7, column 9
-    4: (0, 4, 3),  # Brick type 4 at row 4, column 3
-    5: (0, 4, 5),  # Brick type 5 at row 4, column 5
-    6: (0, 4, 7),  # Brick type 6 at row 4, column 7
-    7: (0, 4, 9),  # Brick type 7 at row 4, column 9
-    8: (0, 1, 5),  # Brick type 8 at row 1, column 5
-    9: (0, 1, 7),  # Brick type 9 at row 1, column 7
-    10: (0, 1, 9)  # Brick type 10 at row 1, column 9
+    3: (0, 7, 3),
+    2: (0, 7, 5),
+    1: (0, 7, 7),
+    0: (0, 7, 9),
+    7: (0, 4, 3),
+    6: (0, 4, 5),
+    5: (0, 4, 7),
+    4: (0, 4, 9),
+    10: (0, 1, 5),
+    9: (0, 1, 7),
+    8: (0, 1, 9)
 }
 
 eligible_positions = [(0, row, col) for row in range(1, width - 1)  # Rows 1 through width-1 (excluding the last row)
@@ -50,7 +50,7 @@ eligible_positions = [(0, row, col) for row in range(1, width - 1)  # Rows 1 thr
 utils.update_config(length, width, height, brick_positions)
 
 
-def generate_test_suite(pop_size=20, iterations=20, test_cases=20):
+def generate_test_suite(pop_size=20, iterations=30, test_cases=20):
     test_suite = []
     previous_picks = []
     previous_places = []
@@ -197,6 +197,16 @@ def calculate_difference_score(new_positions, new_velocities):
 
 # Generate the test suite
 test_suite, collected_workspaces = generate_test_suite()
+
+for case in test_suite:
+    posX, posY = case['posX'], case['posY']
+    new_posX, new_posY = utils.convert_position(posX, posY, length, width)
+    case['posX'] = new_posX
+    case['posY'] = new_posY
+    #print(new_posX)
+    #print(new_posY)
+
+
 for i in range(len(test_suite)):
     print(f"Test Case {i + 1}:")
     print(test_suite[i])
