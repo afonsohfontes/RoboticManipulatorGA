@@ -5,6 +5,7 @@ import numpy as np
 import csv
 import json
 import utils
+import time
 
 # Setup logging configuration
 logging.basicConfig(filename='fitness_log.txt', filemode='a', level=logging.DEBUG,
@@ -14,6 +15,22 @@ logging.basicConfig(filename='fitness_log.txt', filemode='a', level=logging.DEBU
 length = 21
 width = 10
 height = 3
+
+# Global variables to hold aggregate information
+global_visited_positions = set()
+global_velocities = {}
+
+def initialize_global_velocities(length, width, height):
+    velocities = {}
+    for z in range(height):
+        for y in range(width):
+            for x in range(length):
+                velocities[(z, y, x)] = [0]  # Initialize each position with a list containing zero
+    return velocities
+
+# Initialize global_velocities with the correct dimensions
+global_velocities = initialize_global_velocities(length, width, height)
+
 '''
 task_params = {
 	"task_id": "a01",
@@ -55,9 +72,9 @@ def generate_test_suite(pop_size=20, iterations=30, test_cases=20):
     previous_picks = []
     previous_places = []
     workspaces = []
-    global global_visited_positions, global_velocities, global_trajectories
+    global global_visited_positions, global_velocities
 
-    for _ in range(test_cases):
+    for iTest in range(test_cases):
         # Re-initialize workspace_matrix for each test case
         workspace_matrix = np.zeros((height, width, length))
         workspace_matrix[2, 9, 10] = 1  # Reset end effector start/end position
@@ -66,29 +83,35 @@ def generate_test_suite(pop_size=20, iterations=30, test_cases=20):
 
         for _ in range(iterations):
             # Modify selection, crossover, and mutation steps as needed
-            parent1 = utils.tournament_selection(population)
-            parent2 = utils.tournament_selection(population)
+            parent1 = utils.tournament_selection(population, previous_picks, previous_places, global_visited_positions,
+                                                 global_velocities)
+            parent2 = utils.tournament_selection(population, previous_picks, previous_places, global_visited_positions,
+                                                 global_velocities)
             while parent1 == parent2:
-                parent2 = utils.tournament_selection(population)
+                parent2 = utils.tournament_selection(population, previous_picks, previous_places,
+                                                     global_visited_positions, global_velocities)
 
             offspring = utils.crossover(parent1, parent2)
             offspring = utils.mutate(offspring)
 
             # Now calculate fitness considering the history of picks and places
-            offspring_fitness = utils.calculate_fitness(offspring, previous_picks, previous_places, global_visited_positions, global_velocities, global_trajectories)
+            offspring_fitness = utils.calculate_fitness(offspring, previous_picks, previous_places, global_visited_positions, global_velocities)
             offspring['fitness'] = offspring_fitness  # Optional, store fitness in individual
 
             # Population update (simplified for demonstration)
 
             logging.info('POPULATION SORT--------POPULATION SORT--------POPULATION SORT--------POPULATION SORT--------')
-            population.sort(key=lambda ind: utils.calculate_fitness(ind, previous_picks, previous_places, global_visited_positions, global_velocities, global_trajectories))
+            population.sort(key=lambda ind: utils.calculate_fitness(ind, previous_picks, previous_places, global_visited_positions, global_velocities))
             population[0] = offspring
             #population.append(offspring)
 
         logging.info('BEST INDIVIDUAL--------BEST INDIVIDUAL--------BEST INDIVIDUAL--------BEST INDIVIDUAL--------')
         best_individual = max(population, key=lambda ind: utils.calculate_fitness(ind, previous_picks, previous_places,
-                                                                            global_visited_positions, global_velocities, global_trajectories))
-       # print(calculate_fitness(best_individual, previous_picks, previous_places, global_visited_positions, global_velocities, global_trajectories))
+                                                                            global_visited_positions, global_velocities))
+        print('Test Case {:.0f}'.format(iTest+1)) #: {:.2f}".format(pick_place_distance)
+        print(best_individual)
+        utils.calculate_fitness(best_individual, previous_picks, previous_places, global_visited_positions,
+                                global_velocities, True)
         test_suite.append(utils.create_task_params_from_individual(best_individual))
 
         # Update history of picks and places
@@ -97,52 +120,42 @@ def generate_test_suite(pop_size=20, iterations=30, test_cases=20):
         previous_picks.append(best_pick)
         previous_places.append(best_place)
 
-        # Update global metrics and reset workspace_matrix for visualization
-        visited_positions, velocities = utils.simulate_trajectory(best_individual)
-        trajectories = utils.simulate_trajectory_with_orientation(best_individual)
-        update_global_metrics(visited_positions, velocities,trajectories)
+        visited_positions_with_velocity = utils.simulate_trajectory(best_individual)
+        update_global_metrics(visited_positions_with_velocity)
         utils.update_workspace_with_velocity(workspace_matrix,
                                        best_individual)
-        #print(workspace_matrix)  # Prints the workspace matrix for the current test case
         workspaces.append(np.copy(workspace_matrix))
+        print('-------')
+        print('\n')
     return test_suite, workspaces
 
-# Global variables to hold aggregate information
-global_visited_positions = []
-global_velocities = []
-global_trajectories = []
-
-def update_global_metrics(visited_positions, velocities, trajectories):
+def update_global_metrics(visited_positions_with_velocity):
     """
-    Update global metrics with new unique data.
+    Update global metrics with new unique data, including positions and their corresponding velocities.
 
     Args:
-        visited_positions (set): Newly visited positions from the latest simulation.
-        velocities (list): Newly generated velocities from the latest simulation.
-        trajectories (list): Newly generated trajectories with orientation from the latest simulation.
+        visited_positions_with_velocity (dict): Dictionary with positions as keys and velocities as values.
     """
-    # Convert global data to sets for faster operations
-    global global_visited_positions, global_velocities, global_trajectories
+    global global_visited_positions
+    global global_velocities
 
-    # Convert lists to sets for comparison and update
-    new_positions = set(visited_positions)
-    new_velocities = set(velocities)
-    new_trajectories = set(trajectories)
+    # Extract positions from the keys of the dictionary
+    new_positions = set(visited_positions_with_velocity.keys())
 
-    # Update global sets with only new unique items
-    unique_new_positions = new_positions.difference(global_visited_positions)
-    unique_new_velocities = new_velocities.difference(global_velocities)
-    unique_new_trajectories = new_trajectories.difference(global_trajectories)
+    # Determine the new unique positions that were not previously visited
+    unique_new_positions = new_positions.difference(set(global_visited_positions))
 
-    # Convert back to list and extend the global variables
-    global_visited_positions.extend(unique_new_positions)
-    global_velocities.extend(unique_new_velocities)
-    global_trajectories.extend(unique_new_trajectories)
+    # Update global_visited_positions with these new unique positions
+    global_visited_positions.update(unique_new_positions)
 
-    logging.info(f"Added {len(unique_new_positions)} new unique positions.")
-    logging.info(f"Added {len(unique_new_velocities)} new unique velocities.")
-    logging.info(f"Added {len(unique_new_trajectories)} new unique trajectories.")
+    unique_new_vel = 0
+    for position, velocity in visited_positions_with_velocity.items():
+         if velocity not in global_velocities[position]:
+            global_velocities[position].append(velocity)
+            unique_new_vel += 1
 
+    print(f"Added {len(unique_new_positions)} new unique positions.")
+    print(f"Added {(unique_new_vel)} new velocities.")
 
 def calculate_physcov_velocity(workspaces):
     unique_visited_pos_vel = set()
@@ -196,7 +209,11 @@ def calculate_difference_score(new_positions, new_velocities):
 #utils.generate_dataset(num_cases)
 
 # Generate the test suite
+start_time = time.time()
 test_suite, collected_workspaces = generate_test_suite()
+end_time = time.time()
+execution_time = end_time - start_time
+print(f"Execution time: {execution_time} seconds")
 
 for case in test_suite:
     posX, posY = case['posX'], case['posY']

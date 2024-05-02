@@ -140,17 +140,23 @@ def simulate_trajectory(individual):
 
     # Combine all segments
     trajectory = to_pick + to_place + to_start
-    visited_positions = {(z, y, x) for z, y, x, v in trajectory}
-    velocities = [v for _, _, _, v in trajectory]
+    #visited_positions = {(z, y, x) for z, y, x, v in trajectory}
+    visited_positions_with_velocity = {(z, y, x): v for z, y, x, v in trajectory}
 
-    return visited_positions, velocities
+    return visited_positions_with_velocity
 
-def tournament_selection(population, tournament_size=3):
+
+def tournament_selection(population, previous_picks, previous_places, global_visited_positions, global_velocities,
+                         tournament_size=3):
     """
     Selects an individual from the population using tournament selection.
 
     Args:
         population (list): The population to select from.
+        previous_picks (list): List of previous picks used for calculating fitness.
+        previous_places (list): List of previous places used for calculating fitness.
+        global_visited_positions (set or list): The set or list of global visited positions.
+        global_velocities (dict): Dictionary of velocities recorded at different positions.
         tournament_size (int): The number of individuals to compete in the tournament.
 
     Returns:
@@ -159,12 +165,27 @@ def tournament_selection(population, tournament_size=3):
     # Randomly select tournament_size individuals from the population
     tournament = random.sample(population, tournament_size)
     # Select the individual with the highest fitness score
-    winner = max(tournament, key=calculate_fitness)
+    winner = max(tournament, key=lambda ind: calculate_fitness(ind, previous_picks, previous_places,
+                                                               global_visited_positions, global_velocities))
+
     return winner
 
 
-def calculate_fitness(individual, previous_picks=[], previous_places=[], global_visited_positions=[],
-                      global_velocities=[],global_trajectories=[]):
+def get_velocity_category(velocity):
+    """Maps a velocity to its category."""
+    if velocity == 0:
+        return 'Zero'
+    elif 1 <= velocity <= 3:
+        return 'Slow'
+    elif 4 <= velocity <= 6:
+        return 'Medium'
+    elif 7 <= velocity <= 9:
+        return 'Fast'
+    else:
+        raise ValueError("Velocity out of expected range")
+
+def calculate_fitness(individual, previous_picks, previous_places, global_visited_positions,
+                      global_velocities, p=False):
 
     posZ, posY, posX = individual['posZ'], individual['posY'], individual['posX']
     current_pick = (posZ, posY, posX)
@@ -177,14 +198,19 @@ def calculate_fitness(individual, previous_picks=[], previous_places=[], global_
     avg_place_distance = np.mean(
         [euclidean_distance(current_place, prev_place) for prev_place in previous_places]) if previous_places else 0
 
-    visited_positions, velocities = simulate_trajectory(individual)
-    new_exploration = visited_positions.difference(set(global_visited_positions))
+    visited_positions_with_velocity = simulate_trajectory(individual)
+    new_exploration = set(visited_positions_with_velocity.keys()).difference(set(global_visited_positions))
     exploration_score = len(new_exploration)
-    unique_velocities = set(velocities).difference(set(global_velocities))
-    velocity_diversity_score = len(unique_velocities)
-    trajectory = simulate_trajectory_with_orientation(individual)
-    new_paths = trajectory.difference(global_trajectories)
-    t_exploration_score = len(new_paths)
+
+    velocity_changes = 0
+    for pos, vel in visited_positions_with_velocity.items():
+        vel_category = get_velocity_category(vel)
+        if global_velocities[pos]:
+            existing_categories = {get_velocity_category(v) for v in global_velocities[pos]}
+            if vel_category not in existing_categories:
+                velocity_changes += 1
+
+    velocity_diversity_score = velocity_changes
 
     basic_fitness = 1 * pick_place_distance + 1.5 * avg_pick_distance + 3 * avg_place_distance
     penalty = 0
@@ -194,8 +220,18 @@ def calculate_fitness(individual, previous_picks=[], previous_places=[], global_
             basic_fitness += penalty
             break
 
-    fitness = 1 * basic_fitness + 0 * exploration_score + 0 * velocity_diversity_score #+ t_exploration_score
+    fitness = 1 * basic_fitness + 2 * exploration_score + 2 * velocity_diversity_score
 
+    if p:
+        print("Fitness Report:")
+        print("  Pick-Place Distance: {:.2f}".format(pick_place_distance))
+        print("  Average Pick Distance: {:.2f}".format(avg_pick_distance))
+        print("  Average Place Distance: {:.2f}".format(avg_place_distance))
+        print("  Exploration Score (new unique positions): {}".format(exploration_score))
+        print("  Velocity Diversity Score (new categories): {}".format(velocity_diversity_score))
+        print("  Basic Fitness (before penalty): {:.2f}".format(basic_fitness - penalty))
+        print("  Penalty Applied: {}".format(penalty))
+        print("  Total Fitness: {:.2f}".format(fitness))
     return fitness
 
 
