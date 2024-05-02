@@ -67,7 +67,7 @@ eligible_positions = [(0, row, col) for row in range(1, width - 1)  # Rows 1 thr
 utils.update_config(length, width, height, brick_positions)
 
 
-def generate_test_suite(pop_size=20, iterations=30, test_cases=20):
+def generate_test_suite(pop_size=20, iterations=30, test_cases=30):
     test_suite = []
     previous_picks = []
     previous_places = []
