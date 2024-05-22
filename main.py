@@ -6,6 +6,7 @@ import csv
 import json
 import utils
 import time
+import os
 
 # Setup logging configuration
 logging.basicConfig(filename='fitness_log.txt', filemode='a', level=logging.DEBUG,
@@ -67,7 +68,7 @@ eligible_positions = [(0, row, col) for row in range(1, width - 1)  # Rows 1 thr
 utils.update_config(length, width, height, brick_positions)
 
 
-def generate_test_suite(pop_size=20, iterations=30, test_cases=30):
+def generate_test_suite(pop_size=20, iterations=30, test_cases=100):
     test_suite = []
     previous_picks = []
     previous_places = []
@@ -129,6 +130,7 @@ def generate_test_suite(pop_size=20, iterations=30, test_cases=30):
         print('\n')
     return test_suite, workspaces
 
+global_best_individuals_velocities = []
 def update_global_metrics(visited_positions_with_velocity):
     """
     Update global metrics with new unique data, including positions and their corresponding velocities.
@@ -138,6 +140,7 @@ def update_global_metrics(visited_positions_with_velocity):
     """
     global global_visited_positions
     global global_velocities
+    global global_best_individuals_velocities
 
     # Extract positions from the keys of the dictionary
     new_positions = set(visited_positions_with_velocity.keys())
@@ -150,12 +153,15 @@ def update_global_metrics(visited_positions_with_velocity):
 
     unique_new_vel = 0
     for position, velocity in visited_positions_with_velocity.items():
+         
          if velocity not in global_velocities[position]:
             global_velocities[position].append(velocity)
             unique_new_vel += 1
-
-    print(f"Added {len(unique_new_positions)} new unique positions.")
-    print(f"Added {(unique_new_vel)} new velocities.")
+    
+    global_best_individuals_velocities.append(visited_positions_with_velocity)
+    
+    #print(f"Added {len(unique_new_positions)} new unique positions.")
+    #print(f"Added {(unique_new_vel)} new velocities.")
 
 def calculate_physcov_velocity(workspaces):
     unique_visited_pos_vel = set()
@@ -203,34 +209,149 @@ def calculate_difference_score(new_positions, new_velocities):
     return exploration_difference_score, velocity_diversity_difference_score
 
 
+def initialize_globals():
+    global global_visited_positions, global_velocities, global_best_individuals_velocities
+    global_visited_positions = set()
+    global_velocities = initialize_global_velocities(length, width, height)
+    global_best_individuals_velocities = []
+    
+    
+def calculate_physcov_coverage(length=21, width=10, height=3):
+    """
+    Calculate the fraction of the state space that has been covered with unique non-zero velocity categories.
 
-# Generate the dataset
-#num_cases = 100  # Number of random test cases
-#utils.generate_dataset(num_cases)
+    Args:
+        length (int): The length of the workspace.
+        width (int): The width of the workspace.
+        height (int): The height of the workspace.
 
-# Generate the test suite
-start_time = time.time()
-test_suite, collected_workspaces = generate_test_suite()
-end_time = time.time()
-execution_time = end_time - start_time
-print(f"Execution time: {execution_time} seconds")
+    Returns:
+        float: The fraction of the state space that has been covered by unique non-zero velocity categories.
+    """
+    unique_visited_categories = set()
 
-for case in test_suite:
-    posX, posY = case['posX'], case['posY']
-    new_posX, new_posY = utils.convert_position(posX, posY, length, width)
-    case['posX'] = new_posX
-    case['posY'] = new_posY
-    #print(new_posX)
-    #print(new_posY)
+    # Iterate over global_best_individuals_velocities to count positions with unique non-zero velocity categories
+    for visited_positions_with_velocity in global_best_individuals_velocities:
+        for pos, velocity in visited_positions_with_velocity.items():
+            velocity_category = get_velocity_category(velocity)
+            if velocity_category != 'Zero':
+                unique_visited_categories.add((pos, velocity_category))
+
+    unique_non_zero_categories_visited = len(unique_visited_categories)
+    # Calculate the total number of positions in the state space, considering 3 non-zero velocity categories per position
+    total_positions = length * width * height * 3
+    # Calculate the coverage as a fraction
+    coverage_fraction = unique_non_zero_categories_visited / total_positions
+
+    return coverage_fraction
 
 
-for i in range(len(test_suite)):
-    print(f"Test Case {i + 1}:")
-    print(test_suite[i])
-    #print(collected_workspaces[i])
-    print("\n")
+def get_velocity_category(velocity):
+    """
+    Maps a velocity to its category.
 
-exploration_coverage, velocity_diversity, combined_score = calculate_physcov_velocity(collected_workspaces)
-print(f"Exploration Coverage: {exploration_coverage:.2f}")
-print(f"Velocity Diversity: {velocity_diversity}")
-print(f"Combined PhysCov Score: {combined_score:.2f}")
+    Args:
+        velocity (int): The velocity to categorize.
+
+    Returns:
+        str: The category of the velocity.
+    """
+    if velocity == 0:
+        return 'Zero'
+    elif 1 <= velocity <= 3:
+        return 'Slow'
+    elif 4 <= velocity <= 6:
+        return 'Medium'
+    elif 7 <= velocity <= 9:
+        return 'Fast'
+    else:
+        raise ValueError("Velocity out of expected range")
+
+
+import csv
+def calculate_physcov_coverage_for_all_test_cases(test_suite, length=21, width=10, height=3):
+    """
+    Calculate the fraction of the state space that has been covered with unique non-zero velocity categories
+    for all test cases in the test suite.
+
+    Args:
+        test_suite (list): A list of all test cases.
+        length (int): The length of the workspace.
+        width (int): The width of the workspace.
+        height (int): The height of the workspace.
+
+    Returns:
+        list: A list of physCov values after each test case.
+    """
+    unique_visited_categories = set()
+    physCov_values = []
+
+    # Iterate over all test cases
+    for test_case_index in range(len(test_suite)):
+        # Iterate over the velocities in the current test case
+        for pos, velocity in global_best_individuals_velocities[test_case_index].items():
+            velocity_category = get_velocity_category(velocity)
+            if velocity_category != 'Zero':
+                unique_visited_categories.add((pos, velocity_category))
+
+        # Calculate the coverage after this test case
+        unique_non_zero_categories_visited = len(unique_visited_categories)
+        total_positions = length * width * height * 3
+        coverage_fraction = unique_non_zero_categories_visited / total_positions
+        physCov_values.append(coverage_fraction)
+
+    return physCov_values
+
+# Function to generate a single report
+def generate_report(report_num, folder_path):
+    # Ensure the folder exists
+    os.makedirs(folder_path, exist_ok=True)
+    
+    # Reinitialize global variables
+    initialize_globals()
+    
+    # List to track physCov values
+    physCov_values = []
+    reportName1 = 'report_D'
+    reportName = f'{reportName1}-{report_num}'
+    with open(f'{folder_path}/{reportName1}-{report_num}.txt', 'w') as file:
+        # Generate the test suite
+        start_time = time.time()
+        test_suite, collected_workspaces = generate_test_suite()
+        end_time = time.time()
+        execution_time = end_time - start_time
+        file.write(f"Execution time: {execution_time} seconds\n")
+
+        for case in test_suite:
+            posX, posY = case['posX'], case['posY']
+            new_posX, new_posY = utils.convert_position(posX, posY, length, width)
+            case['posX'] = new_posX
+            case['posY'] = new_posY
+
+        for i in range(len(test_suite)):
+            file.write(f"Test Case {i + 1}:\n")
+            file.write(f"{test_suite[i]}\n\n")
+
+
+    
+    physCov_values = calculate_physcov_coverage_for_all_test_cases(test_suite)
+    # Define the path for the CSV file
+    csv_file_path = f'{folder_path}/physCov_evolution_report.csv'
+    # Check if the file already exists
+    file_exists = os.path.isfile(csv_file_path)
+
+    # Save physCov values to a CSV file
+    with open(csv_file_path, 'a', newline='') as csvfile:  # Open in append mode
+        csv_writer = csv.writer(csvfile)
+        if not file_exists:
+            csv_writer.writerow(['Report', 'Test Case', 'physCov'])  # Write header only if file does not exist
+        for idx, physCov in enumerate(physCov_values):
+            csv_writer.writerow([reportName, idx + 1, physCov])
+    
+
+# Define the folder path where reports will be saved
+folder_path = 'reports'
+
+# Generate 10 reports
+for report_num in range(7, 11):
+    generate_report(report_num, folder_path)

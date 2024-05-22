@@ -220,7 +220,7 @@ def calculate_fitness(individual, previous_picks, previous_places, global_visite
             basic_fitness += penalty
             break
 
-    fitness = 1 * basic_fitness + 2 * exploration_score + 2 * velocity_diversity_score
+    fitness = 1 * basic_fitness #+ 2 * exploration_score + 2 * velocity_diversity_score
 
     if p:
         print("Fitness Report:")
